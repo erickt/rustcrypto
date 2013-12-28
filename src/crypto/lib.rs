@@ -24,3 +24,5 @@ pub mod pkcs5;
 pub mod pkey;
 pub mod rand;
 pub mod symm;
+
+mod ffi;

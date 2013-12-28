@@ -1,7 +1,8 @@
 use std::libc::c_uint;
-use std::libc;
 use std::ptr;
 use std::vec;
+
+use ffi;
 
 pub enum HashType {
     MD5,
@@ -12,63 +13,32 @@ pub enum HashType {
     SHA512
 }
 
-#[allow(non_camel_case_types)]
-pub type EVP_MD_CTX = *libc::c_void;
-
-#[allow(non_camel_case_types)]
-pub type EVP_MD = *libc::c_void;
-
-#[link(name = "crypto")]
-extern {
-    fn EVP_MD_CTX_create() -> EVP_MD_CTX;
-    fn EVP_MD_CTX_destroy(ctx: EVP_MD_CTX);
-
-    fn EVP_md5() -> EVP_MD;
-    fn EVP_sha1() -> EVP_MD;
-    fn EVP_sha224() -> EVP_MD;
-    fn EVP_sha256() -> EVP_MD;
-    fn EVP_sha384() -> EVP_MD;
-    fn EVP_sha512() -> EVP_MD;
-
-    fn EVP_DigestInit(ctx: EVP_MD_CTX, typ: EVP_MD);
-    fn EVP_DigestUpdate(ctx: EVP_MD_CTX, data: *u8, n: c_uint);
-    fn EVP_DigestFinal(ctx: EVP_MD_CTX, res: *mut u8, n: *u32);
-}
-
-pub fn evpmd(t: HashType) -> (EVP_MD, uint) {
-    unsafe {
-        match t {
-            MD5 => (EVP_md5(), 16u),
-            SHA1 => (EVP_sha1(), 20u),
-            SHA224 => (EVP_sha224(), 28u),
-            SHA256 => (EVP_sha256(), 32u),
-            SHA384 => (EVP_sha384(), 48u),
-            SHA512 => (EVP_sha512(), 64u),
-        }
-    }
-}
-
 pub struct Hasher {
-    priv evp: EVP_MD,
-    priv ctx: EVP_MD_CTX,
+    priv ctx: ffi::EVP_MD_CTX,
+    priv evp: ffi::EVP_MD,
     priv len: uint,
 }
 
 impl Hasher {
     pub fn new(ht: HashType) -> Hasher {
-        let ctx = unsafe { EVP_MD_CTX_create() };
-        let (evp, mdlen) = evpmd(ht);
         unsafe {
-            EVP_DigestInit(ctx, evp);
-        }
+            let ctx = ffi::EVP_MD_CTX_create();
+            let (evp, len) = ffi::evpmd(ht);
 
-        Hasher { evp: evp, ctx: ctx, len: mdlen }
+            ffi::EVP_DigestInit(ctx, evp);
+
+            Hasher {
+                ctx: ctx,
+                evp: evp,
+                len: len,
+            }
+        }
     }
 
     /// Update this hasher with more input bytes
     pub fn update(&self, data: &[u8]) {
         unsafe {
-            EVP_DigestUpdate(self.ctx, data.as_ptr(), data.len() as c_uint)
+            ffi::EVP_DigestUpdate(self.ctx, data.as_ptr(), data.len() as c_uint)
         }
     }
 
@@ -79,7 +49,7 @@ impl Hasher {
     pub fn final(&self) -> ~[u8] {
         unsafe {
             let mut res = vec::from_elem(self.len, 0u8);
-            EVP_DigestFinal(self.ctx, res.as_mut_ptr(), ptr::null());
+            ffi::EVP_DigestFinal(self.ctx, res.as_mut_ptr(), ptr::null());
             res
         }
     }
@@ -88,7 +58,7 @@ impl Hasher {
 impl Drop for Hasher {
     fn drop(&mut self) {
         unsafe {
-            EVP_MD_CTX_destroy(self.ctx);
+            ffi::EVP_MD_CTX_destroy(self.ctx);
         }
     }
 }

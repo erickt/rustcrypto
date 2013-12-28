@@ -1,40 +1,10 @@
 use std::cast;
-use std::libc::{c_char, c_int, c_uint};
-use std::libc;
+use std::libc::{c_int, c_uint};
 use std::ptr;
 use std::vec;
+
 use hash::{HashType, MD5, SHA1, SHA224, SHA256, SHA384, SHA512};
-
-#[allow(non_camel_case_types)]
-pub type EVP_PKEY = *libc::c_void;
-
-#[allow(non_camel_case_types)]
-pub type RSA = *libc::c_void;
-
-#[link(name = "crypto")]
-extern {
-    fn EVP_PKEY_new() -> *EVP_PKEY;
-    fn EVP_PKEY_free(k: *EVP_PKEY);
-    fn EVP_PKEY_assign(pkey: *EVP_PKEY, typ: c_int, key: *c_char) -> c_int;
-    fn EVP_PKEY_get1_RSA(k: *EVP_PKEY) -> *RSA;
-
-    fn i2d_PublicKey(k: *EVP_PKEY, buf: **mut u8) -> c_int;
-    fn d2i_PublicKey(t: c_int, k: **EVP_PKEY, buf: **u8, len: c_uint) -> *EVP_PKEY;
-    fn i2d_PrivateKey(k: *EVP_PKEY, buf: **mut u8) -> c_int;
-    fn d2i_PrivateKey(t: c_int, k: **EVP_PKEY, buf: **u8, len: c_uint) -> *EVP_PKEY;
-
-    fn RSA_generate_key(modsz: c_uint, e: c_uint, cb: *u8, cbarg: *u8) -> *RSA;
-    fn RSA_size(k: *RSA) -> c_uint;
-
-    fn RSA_public_encrypt(flen: c_uint, from: *u8, to: *mut u8, k: *RSA,
-                          pad: c_int) -> c_int;
-    fn RSA_private_decrypt(flen: c_uint, from: *u8, to: *mut u8, k: *RSA,
-                           pad: c_int) -> c_int;
-    fn RSA_sign(t: c_int, m: *u8, mlen: c_uint, sig: *mut u8, siglen: *mut c_uint,
-                k: *RSA) -> c_int;
-    fn RSA_verify(t: c_int, m: *u8, mlen: c_uint, sig: *u8, siglen: c_uint,
-                  k: *RSA) -> c_int;
-}
+use ffi;
 
 enum Parts {
     Neither,
@@ -75,7 +45,7 @@ fn openssl_hash_nid(hash: HashType) -> c_int {
 }
 
 pub struct PKey {
-    priv evp: *EVP_PKEY,
+    priv evp: *ffi::EVP_PKEY,
     priv parts: Parts,
 }
 
@@ -84,13 +54,13 @@ impl PKey {
     pub fn new() -> PKey {
         unsafe {
             PKey {
-                evp: EVP_PKEY_new(),
+                evp: ffi::EVP_PKEY_new(),
                 parts: Neither,
             }
         }
     }
 
-    fn _tostr(&self, f: extern "C" unsafe fn(*EVP_PKEY, **mut u8) -> c_int) -> ~[u8] {
+    fn _tostr(&self, f: extern "C" unsafe fn(*ffi::EVP_PKEY, **mut u8) -> c_int) -> ~[u8] {
         unsafe {
             let len = f(self.evp, ptr::null());
             if len < 0 as c_int { return ~[]; }
@@ -103,7 +73,9 @@ impl PKey {
         }
     }
 
-    fn _fromstr(&mut self, s: &[u8], f: extern "C" unsafe fn(c_int, **EVP_PKEY, **u8, c_uint) -> *EVP_PKEY) {
+    fn _fromstr(&mut self,
+                s: &[u8],
+                f: extern "C" unsafe fn(c_int, **ffi::EVP_PKEY, **u8, c_uint) -> *ffi::EVP_PKEY) {
         unsafe {
             let evp = ptr::null();
             f(6 as c_int, &evp, &s.as_ptr(), s.len() as c_uint);
@@ -113,7 +85,7 @@ impl PKey {
 
     pub fn gen(&mut self, keysz: uint) {
         unsafe {
-            let rsa = RSA_generate_key(
+            let rsa = ffi::RSA_generate_key(
                 keysz as c_uint,
                 65537u as c_uint,
                 ptr::null(),
@@ -121,7 +93,7 @@ impl PKey {
             );
 
             // XXX: 6 == NID_rsaEncryption
-            EVP_PKEY_assign(
+            ffi::EVP_PKEY_assign(
                 self.evp,
                 6 as c_int,
                 cast::transmute(rsa));
@@ -134,14 +106,14 @@ impl PKey {
      * Returns a serialized form of the public key, suitable for load_pub().
      */
     pub fn save_pub(&self) -> ~[u8] {
-        self._tostr(i2d_PublicKey)
+        self._tostr(ffi::i2d_PublicKey)
     }
 
     /**
      * Loads a serialized form of the public key, as produced by save_pub().
      */
     pub fn load_pub(&mut self, s: &[u8]) {
-        self._fromstr(s, d2i_PublicKey);
+        self._fromstr(s, ffi::d2i_PublicKey);
         self.parts = Public;
     }
 
@@ -150,14 +122,14 @@ impl PKey {
      * load_priv().
      */
     pub fn save_priv(&self) -> ~[u8] {
-        self._tostr(i2d_PrivateKey)
+        self._tostr(ffi::i2d_PrivateKey)
     }
     /**
      * Loads a serialized form of the public and private keys, as produced by
      * save_priv().
      */
     pub fn load_priv(&mut self, s: &[u8]) {
-        self._fromstr(s, d2i_PrivateKey);
+        self._fromstr(s, ffi::d2i_PrivateKey);
         self.parts = Both;
     }
 
@@ -166,7 +138,7 @@ impl PKey {
      */
     pub fn size(&self) -> uint {
         unsafe {
-            RSA_size(EVP_PKEY_get1_RSA(self.evp)) as uint
+            ffi::RSA_size(ffi::EVP_PKEY_get1_RSA(self.evp)) as uint
         }
     }
 
@@ -204,8 +176,8 @@ impl PKey {
      */
     pub fn max_data(&self) -> uint {
         unsafe {
-            let rsa = EVP_PKEY_get1_RSA(self.evp);
-            let len = RSA_size(rsa);
+            let rsa = ffi::EVP_PKEY_get1_RSA(self.evp);
+            let len = ffi::RSA_size(rsa);
 
             // 41 comes from RSA_public_encrypt(3) for OAEP
             len as uint - 41u
@@ -214,14 +186,14 @@ impl PKey {
 
     pub fn encrypt_with_padding(&self, s: &[u8], padding: EncryptionPadding) -> ~[u8] {
         unsafe {
-            let rsa = EVP_PKEY_get1_RSA(self.evp);
-            let len = RSA_size(rsa);
+            let rsa = ffi::EVP_PKEY_get1_RSA(self.evp);
+            let len = ffi::RSA_size(rsa);
 
             assert!(s.len() < self.max_data());
 
             let mut r = vec::from_elem(len as uint + 1u, 0u8);
 
-            let rv = RSA_public_encrypt(
+            let rv = ffi::RSA_public_encrypt(
                 s.len() as c_uint,
                 s.as_ptr(),
                 r.as_mut_ptr(),
@@ -239,14 +211,14 @@ impl PKey {
 
     pub fn decrypt_with_padding(&self, s: &[u8], padding: EncryptionPadding) -> ~[u8] {
         unsafe {
-            let rsa = EVP_PKEY_get1_RSA(self.evp);
-            let len = RSA_size(rsa);
+            let rsa = ffi::EVP_PKEY_get1_RSA(self.evp);
+            let len = ffi::RSA_size(rsa);
 
-            assert_eq!(s.len() as c_uint, RSA_size(rsa));
+            assert_eq!(s.len() as c_uint, len);
 
             let mut r = vec::from_elem(len as uint + 1u, 0u8);
 
-            let rv = RSA_private_decrypt(
+            let rv = ffi::RSA_private_decrypt(
                 s.len() as c_uint,
                 s.as_ptr(),
                 r.as_mut_ptr(),
@@ -287,11 +259,11 @@ impl PKey {
 
     pub fn sign_with_hash(&self, s: &[u8], hash: HashType) -> ~[u8] {
         unsafe {
-            let rsa = EVP_PKEY_get1_RSA(self.evp);
-            let mut len = RSA_size(rsa);
+            let rsa = ffi::EVP_PKEY_get1_RSA(self.evp);
+            let mut len = ffi::RSA_size(rsa);
             let mut r = vec::from_elem(len as uint + 1u, 0u8);
 
-            let rv = RSA_sign(
+            let rv = ffi::RSA_sign(
                 openssl_hash_nid(hash),
                 s.as_ptr(),
                 s.len() as c_uint,
@@ -310,9 +282,9 @@ impl PKey {
 
     pub fn verify_with_hash(&self, m: &[u8], s: &[u8], hash: HashType) -> bool {
         unsafe {
-            let rsa = EVP_PKEY_get1_RSA(self.evp);
+            let rsa = ffi::EVP_PKEY_get1_RSA(self.evp);
 
-            let rv = RSA_verify(
+            let rv = ffi::RSA_verify(
                 openssl_hash_nid(hash),
                 m.as_ptr(),
                 m.len() as c_uint,
@@ -329,7 +301,7 @@ impl PKey {
 impl Drop for PKey {
     fn drop(&mut self) {
         unsafe {
-            EVP_PKEY_free(self.evp);
+            ffi::EVP_PKEY_free(self.evp);
         }
     }
 }
