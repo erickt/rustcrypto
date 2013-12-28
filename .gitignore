@@ -2,8 +2,9 @@
 *.dylib
 *.so
 *.dSYM/
-/.rust
+/.rust/
 /bin/
 /build/
+/doc/
 /lib/
 /src/crypto/crypto

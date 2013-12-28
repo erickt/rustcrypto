@@ -1,5 +1,5 @@
 This package provides Rust bindings for the functionality exposed by OpenSSL's
-libcrypto. OpenSSL 1.0.1 or higher is required. Currently provided:
+libssl and libcrypto. OpenSSL 1.0.1 or higher is required. Currently provided:
 
 * Hash functions (hash.rs)
   * SHA-512, SHA-384, SHA-256, SHA-224
